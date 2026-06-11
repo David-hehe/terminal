@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terminal</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      background: #000;
+      color: #fff;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      padding: 24px 28px;
+      overflow: hidden;
+    }
+
+    /* ---- Header ---- */
+    #header {
+      border-bottom: 1px solid #fff;
+      padding-bottom: 10px;
+      margin-bottom: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    #header span:first-child {
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    #header span:last-child {
+      font-size: 11px;
+      opacity: 0.5;
+    }
+
+    /* ---- Output area ---- */
+    #output {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-bottom: 12px;
+    }
+
+    #output::-webkit-scrollbar {
+      width: 3px;
+    }
+
+    #output::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #output::-webkit-scrollbar-thumb {
+      background: #444;
+    }
+
+    .line {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .line.cmd {
+      opacity: 0.5;
+    }
+
+    .line.response {
+      opacity: 1;
+    }
+
+    .line.empty {
+      height: 1.7em;
+    }
+
+    .line.error {
+      opacity: 0.6;
+    }
+
+    /* ---- Input row ---- */
+    #input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-top: 1px solid #fff;
+      padding-top: 10px;
+      flex-shrink: 0;
+    }
+
+    #prompt-symbol {
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    #input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #fff;
+      font-family: inherit;
+      font-size: inherit;
+      line-height: inherit;
+      caret-color: #fff;
+    }
+
+    #input:focus {
+      caret-color: #fff;
+    }
+
+    @keyframes blink {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="header">
+    <span>Terminal</span>
+  </div>
+
+  <div id="output"></div>
+
+  <div id="input-row">
+    <span id="prompt-symbol">&gt;</span>
+    <input type="text" id="input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+      autofocus />
+  </div>
+
+  <script>
+    (function () {
+      const _warn = "%cAcesso restrito.\nEste console é monitorado.",
+        _style = "color:#fff;background:#000;font-size:14px;padding:8px 12px;font-family:monospace;";
+      const _noop = () => { };
+      ["log", "dir", "table", "info", "debug", "group", "groupCollapsed", "trace"].forEach(function (m) {
+        try { Object.defineProperty(console, m, { value: _noop, writable: false, configurable: false }); } catch (e) { }
+      });
+      /* Aviso no warn/error (deixa funcionar mas exibe alerta) */
+      ["warn", "error"].forEach(function (m) {
+        const _orig = console[m].bind(console);
+        try {
+          Object.defineProperty(console, m, {
+            value: function () { _orig(_warn, _style); },
+            writable: false, configurable: false
+          });
+        } catch (e) { }
+      });
+    })();
+
+    (function () {
+      /* Dados codificados (XOR + Base64) */
+      const _d = "";
+      const _k = "f3Kz9wQm";
+
+      /* Decodificação interna */
+      function _decode(encoded, key) {
+        try {
+          const raw = atob(encoded);
+          let out = "";
+          for (let i = 0; i < raw.length; i++) {
+            out += String.fromCharCode(raw.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+          }
+          return JSON.parse(out);
+        } catch (e) {
+          return {};
+        }
+      }
+
+      const _keywords = _decode(_d, _k);
+
+      /* =============================================================
+         CONFIGURAÇÃO
+      ============================================================= */
+      const PROMPT_TEXT = ">";
+      const WELCOME_LINES = [
+        "Bem-vindo. Digite 'help' para instruções.",
+        "",
+      ];
+      const UNKNOWN_MSG = function (cmd) { return "'" + cmd + "': comando não encontrado."; };
+
+      /* =============================================================
+         LÓGICA DO TERMINAL
+      ============================================================= */
+      const outputEl = document.getElementById("output");
+      const inputEl = document.getElementById("input");
+      const clockEl = document.getElementById("clock");
+
+      const cmdHistory = [];
+      let historyIndex = -1;
+
+      function printLine(text, type) {
+        type = type || "response";
+        const el = document.createElement("div");
+        el.className = "line " + (text === "" ? "empty" : type);
+        if (text !== "") el.textContent = text;
+        outputEl.appendChild(el);
+        outputEl.scrollTop = outputEl.scrollHeight;
+      }
+
+      function printLines(lines, type) {
+        lines.forEach(function (l) { printLine(l, type); });
+      }
+
+      function printMedia(url) {
+        const isVideo = /\.(mp4|webm|ogg)(\?|$)/i.test(url);
+        const wrapper = document.createElement("div");
+        wrapper.className = "line response";
+        wrapper.style.margin = "6px 0";
+        if (isVideo) {
+          const v = document.createElement("video");
+          v.src = url;
+          v.controls = true;
+          v.style.maxWidth = "100%";
+          v.style.maxHeight = "320px";
+          v.style.display = "block";
+          wrapper.appendChild(v);
+        } else {
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "";
+          img.style.maxWidth = "100%";
+          img.style.maxHeight = "320px";
+          img.style.display = "block";
+          wrapper.appendChild(img);
+        }
+        outputEl.appendChild(wrapper);
+        outputEl.scrollTop = outputEl.scrollHeight;
+      }
+
+      function handleCommand(raw) {
+        const cmd = raw.trim();
+        if (!cmd) return;
+
+        cmdHistory.unshift(cmd);
+        historyIndex = -1;
+
+        printLine(PROMPT_TEXT + " " + cmd, "cmd");
+
+        const lower = cmd.toLowerCase();
+
+        if (lower === "clear") {
+          outputEl.innerHTML = "";
+          return;
+        }
+
+        const response = _keywords[lower];
+
+        if (response !== undefined) {
+          // Formato simples: array de strings
+          if (Array.isArray(response)) {
+            printLines(response, "response");
+          // Formato com mídia: { text: [...], media: "url" }
+          } else if (typeof response === "object" && response !== null) {
+            if (Array.isArray(response.text)) {
+              printLines(response.text, "response");
+            }
+            if (response.media) {
+              printMedia(response.media);
+            }
+          } else {
+            printLine(response, "response");
+          }
+        } else {
+          printLine(UNKNOWN_MSG(cmd), "error");
+        }
+
+        printLine("");
+      }
+
+      /* Inicialização */
+      WELCOME_LINES.forEach(function (l) { printLine(l); });
+
+      /* Evento de teclado */
+      inputEl.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          handleCommand(inputEl.value);
+          inputEl.value = "";
+
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          if (historyIndex < cmdHistory.length - 1) {
+            historyIndex++;
+            inputEl.value = cmdHistory[historyIndex];
+            setTimeout(function () {
+              inputEl.selectionStart = inputEl.selectionEnd = inputEl.value.length;
+            }, 0);
+          }
+
+        } else if (e.key === "ArrowDown") {
+          e.preventDefault();
+          if (historyIndex > 0) {
+            historyIndex--;
+            inputEl.value = cmdHistory[historyIndex];
+          } else {
+            historyIndex = -1;
+            inputEl.value = "";
+          }
+        }
+      });
+
+      /* Clique em qualquer lugar foca o input */
+      document.addEventListener("click", function () { inputEl.focus(); });
+
+    })();
+  </script>
+
+</body>
+
+</html>
