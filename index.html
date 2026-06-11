@@ -195,6 +195,11 @@
       }
 
       const _keywords = _decode(_d, _k);
+      const _keywordMap = Object.fromEntries(
+        Object.entries(_keywords).map(function (entry) {
+          return [entry[0].toLowerCase(), entry[1]];
+        })
+      );
 
       /* =============================================================
          CONFIGURAÇÃO
@@ -271,15 +276,17 @@
           return;
         }
 
-        const response = _keywords[lower];
+        const response = _keywordMap[lower];
 
         if (response !== undefined) {
           // Formato simples: array de strings
           if (Array.isArray(response)) {
             printLines(response, "response");
-          // Formato com mídia: { text: [...], media: "url" }
+          // Formato com mídia: { text: "..." ou [...], media: "url" }
           } else if (typeof response === "object" && response !== null) {
-            if (Array.isArray(response.text)) {
+            if (typeof response.text === "string") {
+              printLine(response.text, "response");
+            } else if (Array.isArray(response.text)) {
               printLines(response.text, "response");
             }
             if (response.media) {
